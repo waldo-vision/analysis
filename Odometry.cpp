@@ -18,8 +18,10 @@
 #include <opencv2/videoio.hpp>
 #include <opencv2/video/tracking.hpp>
 #include <opencv2/calib3d.hpp>
+#include <opencv2/core/mat.hpp>
 #include <iostream>
 #include <cstdlib>
+#include <ctime>
 
 using namespace cv;
 
@@ -57,13 +59,15 @@ int main(int argc, char** argv) {
     cap >> out;
     int rows = out.rows;
     int cols = out.cols;
+    Mat movementMap = Mat::zeros(rows, cols, out.type());
+    rectangle(movementMap, Rect(0, 0, cols/5, cols/5), Scalar(255,255,255), -1);
     VideoWriter vidOut;
-    VideoWriter mapOut; // TODO track player movement
     vidOut.open("out.mp4", VideoWriter::fourcc('m','p','4','v'), 24, out.size(), true);
     std::vector<KeyPoint> keypoints;
     std::vector<Point2f> points;
     std::vector<Point2f> prevPoints;
     std::vector<uchar> status;
+    int minGoodPoints = 1600 / threshold; // TODO this is arbitrary, may need tuning (Lower threshold = higher good points needed)
 
     double sumX = 0;
     double sumY = 0;
@@ -74,58 +78,73 @@ int main(int argc, char** argv) {
 
     // Main loop
     int frame = 0;
+    int sumGoodPoints = 0;
+    time_t timeStart = time(NULL);
     while(cap.read(out) && vidOut.isOpened()) {
         // Detect features
         Mat grayOut;
         cvtColor(out, grayOut, COLOR_BGR2GRAY);
 
         // Refresh points below a certain detection threshold (Unused, tends to track UI)
-        // if(keypoints.size() < 900) {
-        //     std::cout << "Points at " << keypoints.size() <<  ": refreshing\n";
-        //     points = featureDetection(grayOut, keypoints, threshold);
-        // }
-        points = featureDetection(grayOut, keypoints, threshold);
+
+        if(sumGoodPoints < minGoodPoints) {
+            //std::cout << "Points at " << keypoints.size() << " Good points at " << sumGoodPoints <<  ": refreshing\n";
+            points = featureDetection(grayOut, keypoints, threshold);
+        }
+        sumGoodPoints = 0;
         
         // Track features
         if(prevPoints.size() != 0) { // Not first frame
             featureTracking(grayOut, grayLast, points, prevPoints, status);
 
             Mat E, mask;
-            std::cout << "Finding matrix\n";
             E = findEssentialMat(points, prevPoints, focal, opticalCenter, RANSAC, 0.999, 1.0, mask);
             Mat R, t;
-            std::cout << "Finding pose\n";
             if(E.size().area() == 0) {
                 std::cout << mask.size().area();
                 std::cout << "Essential matrix is empty\n";
             } else {
-                recoverPose(E, points, prevPoints, R, t, focal, opticalCenter, mask);
-                // Strange output when the same image is presented
-                // https://stackoverflow.com/questions/33372310/why-does-opencvs-recoverpose-return-a-non-origin-position-when-identical-point
-                // Unit is (may need to test on different systems) = 0.5773502691896257
-                if(*(t.begin<double>()) == 0.5773502691896257) t = 0;
-                //t = t + R * t;
+                recoverPose(E, points, prevPoints, R, t, focal, opticalCenter, mask);  
+
+                // Count valid points
+                for(int i = 0; i < mask.size().area(); i++) {
+                    if(mask.at<bool>(i)) sumGoodPoints++;
+                }
+
+                // FIXME - Need to correct for drift when movement is low
+                // Right now there the number of points persists fairly regular with low movement, so low discard rates probably mean no movement
                 sumX += t.at<double>(0);
                 sumY += t.at<double>(1);
                 sumZ += t.at<double>(2);
-            }
 
-            // Draw tracked features (this frame)
-            for(int i = 0; i < prevPoints.size(); i++) {
-                if(mask.at<bool>(i)) { // Verified point
-                    // Points
-                    // drawMarker(out, points[i], Scalar(255, 255, 255), MARKER_STAR, 3, 1);
-                    // Tracking lines
-                    line(out, points[i], prevPoints[i], Scalar(0, 100, 0), 2, LineTypes::LINE_4);
+                // Strange output when the same image is presented
+                // https://stackoverflow.com/questions/33372310/why-does-opencvs-recoverpose-return-a-non-origin-position-when-identical-point
+                // Unit is (may need to test on different systems) = 0.5773502691896257
+                if(t.at<double>(0) == 0.5773502691896257) {
+                    t =  Mat::zeros(t.rows, t.cols, t.type()); 
+                } else {
+                    // Use this for global tracking, otherwise t is relative to last frame
+                    // Short term movement
+                    rectangle(movementMap, Rect((cols / 5), 0, cols/10, cols/10), Scalar(255,255,255), -1);
+                    circle(movementMap, Point(cols / 20 + cols / 5 + t.at<double>(0) * 10, cols / 20 + t.at<double>(1) * 10), 0, Scalar(255, 0, 0), 50);
+                    // Use this for global tracking, otherwise t is relative to last frame
+                    t = t + R * t;
                 }
+
+                // Long term tracker
+                circle(movementMap, Point((cols / 2 + sumX * 3) / 5, (cols / 2 + sumY * 3) / 5), 1, Scalar(255, 0, 0));
+
             }
         }
 
-        std::cout << "X travelled: " << sumX << " Y travelled: " << sumY << " Z travelled" << sumZ << '\n';
+        //std::cout << "X travelled: " << sumX << " Y travelled: " << sumY << " Z travelled" << sumZ << '\n';
 
         // Put last frame data in storage
         prevPoints = std::vector<Point2f>(points);
         grayLast = grayOut;
+
+        // Add player movement map to video
+        add(movementMap, out, out);
 
         // Show output (Only with debug)
         if (debug) {
@@ -135,13 +154,18 @@ int main(int argc, char** argv) {
         }
 
         // Write output
-        std::cout << "Frame " << ++frame << '\n';
+        if(!debug && frame % 25 == 0) { // Make output less cluttered
+            std::cout << "Frame " << frame << " good points " << sumGoodPoints << '\n';
+        } else if(debug) {
+            std::cout << "Frame " << frame << " good points " << sumGoodPoints << " points " << points.size() << '\n';
+        }
+        frame++;
         vidOut.write(out);
     }
 
     // Close program
     vidOut.release();
-    std::cout << "Reached end of video.";
+    std::cout << "Finished in " << difftime(time(NULL), timeStart) << "s.";
     return 0;
 }
 
