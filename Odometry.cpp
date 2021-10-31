@@ -111,12 +111,6 @@ int main(int argc, char** argv) {
                     if(mask.at<bool>(i)) sumGoodPoints++;
                 }
 
-                // FIXME - Need to correct for drift when movement is low
-                // Right now there the number of points persists fairly regular with low movement, so low discard rates probably mean no movement
-                sumX += t.at<double>(0);
-                sumY += t.at<double>(1);
-                sumZ += t.at<double>(2);
-
                 // Strange output when the same image is presented
                 // https://stackoverflow.com/questions/33372310/why-does-opencvs-recoverpose-return-a-non-origin-position-when-identical-point
                 // Unit is (may need to test on different systems) = 0.5773502691896257
@@ -124,11 +118,15 @@ int main(int argc, char** argv) {
                     t =  Mat::zeros(t.rows, t.cols, t.type()); 
                 } else {
                     // Use this for global tracking, otherwise t is relative to last frame
+                    t = t + R * t;
+                    // FIXME - Need to correct for drift when movement is low
+                    // Right now there the number of points persists fairly regular with low movement, so low discard rates probably mean no movement
+                    sumX += t.at<double>(0);
+                    sumY += t.at<double>(1);
+                    sumZ += t.at<double>(2);
                     // Short term movement
                     rectangle(movementMap, Rect((cols / 5), 0, cols/10, cols/10), Scalar(255,255,255), -1);
                     circle(movementMap, Point(cols / 20 + cols / 5 + t.at<double>(0) * 10, cols / 20 + t.at<double>(1) * 10), 0, Scalar(255, 0, 0), 50);
-                    // Use this for global tracking, otherwise t is relative to last frame
-                    t = t + R * t;
                 }
 
                 // Long term tracker
