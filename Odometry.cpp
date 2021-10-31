@@ -22,6 +22,7 @@
 #include <iostream>
 #include <cstdlib>
 #include <ctime>
+#include <cmath>
 
 using namespace cv;
 
@@ -73,8 +74,10 @@ int main(int argc, char** argv) {
     double sumY = 0;
     double sumZ = 0;
 
-    double focal = 1;
-    Point2d opticalCenter(rows / 2, cols / 2);
+    Mat totalR = Mat::zeros(3, 3, CV_64FC1);
+
+    double focal = 100;
+    Point2d opticalCenter(cols / 2, rows / 2);
 
     // Main loop
     int frame = 0;
@@ -98,7 +101,7 @@ int main(int argc, char** argv) {
             featureTracking(grayOut, grayLast, points, prevPoints, status);
 
             Mat E, mask;
-            E = findEssentialMat(points, prevPoints, focal, opticalCenter, RANSAC, 0.999, 1.0, mask);
+            E = findEssentialMat(points, prevPoints, focal, opticalCenter, LMEDS, 0.999, 1.0, mask);
             Mat R, t;
             if(E.size().area() == 0) {
                 std::cout << mask.size().area();
@@ -118,7 +121,7 @@ int main(int argc, char** argv) {
                     t =  Mat::zeros(t.rows, t.cols, t.type()); 
                 } else {
                     // Use this for global tracking, otherwise t is relative to last frame
-                    t = t + R * t;
+                    t = t + totalR * t;
                     // FIXME - Need to correct for drift when movement is low
                     // Right now there the number of points persists fairly regular with low movement, so low discard rates probably mean no movement
                     sumX += t.at<double>(0);
@@ -127,6 +130,19 @@ int main(int argc, char** argv) {
                     // Short term movement
                     rectangle(movementMap, Rect((cols / 5), 0, cols/10, cols/10), Scalar(255,255,255), -1);
                     circle(movementMap, Point(cols / 20 + cols / 5 + t.at<double>(0) * 10, cols / 20 + t.at<double>(1) * 10), 0, Scalar(255, 0, 0), 50);
+
+                    // http://planning.cs.uiuc.edu/node103.html
+                    // 0 1 2
+                    // 3 4 5
+                    // 6 7 8
+                    // alpha(yaw) = arctan(r3 / r0)
+                    // beta(pitch) = arctan(- r6 * sqrt(r7 ^ 2 + r8 ^ 2))
+                    // gamma(roll) = arctan(r7 / r8)
+                    double alpha = atan(R.at<double>(3) / R.at<double>(0));
+                    Mat rod;
+                    totalR = totalR * R;
+                    Rodrigues(totalR, rod);
+                    if(debug) std::cout << "Rodriguez: " << rod << '\n';
                 }
 
                 // Long term tracker
