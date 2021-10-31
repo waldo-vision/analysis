@@ -58,13 +58,18 @@ int main(int argc, char** argv) {
     int rows = out.rows;
     int cols = out.cols;
     VideoWriter vidOut;
+    VideoWriter mapOut; // TODO track player movement
     vidOut.open("out.mp4", VideoWriter::fourcc('m','p','4','v'), 24, out.size(), true);
     std::vector<KeyPoint> keypoints;
     std::vector<Point2f> points;
     std::vector<Point2f> prevPoints;
     std::vector<uchar> status;
 
-    double focal = 0;
+    double sumX = 0;
+    double sumY = 0;
+    double sumZ = 0;
+
+    double focal = 1;
     Point2d opticalCenter(rows / 2, cols / 2);
 
     // Main loop
@@ -85,30 +90,38 @@ int main(int argc, char** argv) {
         if(prevPoints.size() != 0) { // Not first frame
             featureTracking(grayOut, grayLast, points, prevPoints, status);
 
-            // FIXME Ransac algorithm producing 0 hits. Try LMEDS?
-            // Mat E, mask;
-            // std::cout << "Finding matrix\n";
-            // E = findEssentialMat(points, prevPoints, focal, opticalCenter, RANSAC, 0.01, 100000.0, mask);
-            // Mat R, t; // T: x, z, y
-            // std::cout << "Finding pose\n";
-            // if(E.size().area() == 0) {
-            //     std::cout << mask.size().area();
-            //     std::cout << "Essential matrix is empty\n";
-            // } else {
-            //     recoverPose(E, points, prevPoints, R, t, focal, opticalCenter, mask);
-            //     std::cout << "X translation: " << t.at<double>(0) << " Y translation: " << t.at<double>(1) << " Z translation: " << t.at<double>(2) << '\n';
-            // }
+            Mat E, mask;
+            std::cout << "Finding matrix\n";
+            E = findEssentialMat(points, prevPoints, focal, opticalCenter, RANSAC, 0.999, 1.0, mask);
+            Mat R, t;
+            std::cout << "Finding pose\n";
+            if(E.size().area() == 0) {
+                std::cout << mask.size().area();
+                std::cout << "Essential matrix is empty\n";
+            } else {
+                recoverPose(E, points, prevPoints, R, t, focal, opticalCenter, mask);
+                // Strange output when the same image is presented
+                // https://stackoverflow.com/questions/33372310/why-does-opencvs-recoverpose-return-a-non-origin-position-when-identical-point
+                // Unit is (may need to test on different systems) = 0.5773502691896257
+                if(*(t.begin<double>()) == 0.5773502691896257) t = 0;
+                //t = t + R * t;
+                sumX += t.at<double>(0);
+                sumY += t.at<double>(1);
+                sumZ += t.at<double>(2);
+            }
+
+            // Draw tracked features (this frame)
+            for(int i = 0; i < prevPoints.size(); i++) {
+                if(mask.at<bool>(i)) { // Verified point
+                    // Points
+                    // drawMarker(out, points[i], Scalar(255, 255, 255), MARKER_STAR, 3, 1);
+                    // Tracking lines
+                    line(out, points[i], prevPoints[i], Scalar(0, 100, 0), 2, LineTypes::LINE_4);
+                }
+            }
         }
 
-        // Draw tracked features (this frame)
-        for(int i = 0; i < prevPoints.size(); i++) {
-            // Points
-            // drawMarker(out, points[i], Scalar(0, 255, 0), MARKER_STAR, 1, 1);
-            // drawMarker(empty, points[i], Scalar(255, 255, 255), MARKER_STAR, 1, 1);
-
-            // Tracking lines
-            line(out, points[i], prevPoints[i], Scalar(0, 100, 0), 2, LineTypes::LINE_4);
-        }        
+        std::cout << "X travelled: " << sumX << " Y travelled: " << sumY << " Z travelled" << sumZ << '\n';
 
         // Put last frame data in storage
         prevPoints = std::vector<Point2f>(points);
