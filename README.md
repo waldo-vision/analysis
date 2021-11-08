@@ -1,7 +1,15 @@
-# Video Analysis
+# Replay Parser
 
-As we are currently in the experimentation stage of development. No code base will be in `main`. <br>
-You can switch to a different branch and check out the different classes, functions, or programs being developed.
+This is the branch for handling parsing of replay files. 
+
+## Prerequisites
+Python >= 3.7 and Golang >= 1.16.
+
+## Running Tests
+
+Do not use the integrated terminal in VS Code as it activates the Python virtual environment.
+
+Use `pipenv run mamba --format=documentation` to run the spec files in the spec folder
 
 Please check the Wiki, which details a lot of important information. Check it out:<br>
 \>https://github.com/waldo-vision/video.analysis/wiki<
