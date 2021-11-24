@@ -1,3 +1,13 @@
+---
+name: New Code
+about: Details about new code snippets or sub-systems
+title: 'My New Changes'
+labels: ''
+reviewers: 'FaceInCake'
+assignees: ''
+
+---
+
 ## Purpose
 
 In depth, this is the reason why I'm making this pull request, the problem and solution.  
